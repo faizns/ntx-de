@@ -1,2 +1,23 @@
 version: "3"
+
 services:
+  api:
+    build:
+      context: ./api 
+    ports:
+      - "6000:6000"
+    networks:
+      - etl_api 
+
+  etl:
+    build:
+      context: ./etl 
+    depends_on:
+      - api
+    networks:
+      - etl_api  
+
+networks:
+  etl_api :
+    name : "etl_api "
+
