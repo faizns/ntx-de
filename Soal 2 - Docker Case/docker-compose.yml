@@ -1,23 +1,20 @@
-version: "3"
+version: '3'
 
 services:
   api:
     build:
-      context: ./api 
+      context: ./api
     ports:
       - "6000:6000"
-    networks:
-      - etl_api 
+    volumes:
+      - ./api:/app
+    depends_on:
+      - etl
 
   etl:
     build:
-      context: ./etl 
-    depends_on:
-      - api
-    networks:
-      - etl_api  
+      context: ./etl
+    volumes:
+      - ./etl:/app
 
-networks:
-  etl_api :
-    name : "etl_api "
 
