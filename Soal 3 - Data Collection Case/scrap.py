@@ -1,61 +1,60 @@
 import os
-import json
 import asyncio
-import httpx
-from bs4 import BeautifulSoup
-from tqdm import tqdm
+import requests
+import json
 import polars as pl
+from bs4 import BeautifulSoup
 
-# Define the base URL and maximum pages for each level
-BASE_URL = "https://www.fortiguard.com/encyclopedia?type=ips&risk={level}&page={i}"
-MAX_PAGES = [10, 15, 20, 25, 30]
+base_url = 'https://www.fortiguard.com'
 
-# Define the output directory
-OUTPUT_DIR = "datasets"
+def build_url(level, page):
+    return f'{base_url}/encyclopedia?type=ips&risk={level}&page={page}'
 
-# Function to scrape data for a given level and page
-async def scrape_data(level, page):
-    url = BASE_URL.format(level=level, i=page)
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
+def scrape_page(level, page, data, skipped_pages):
+    url = build_url(level, page)
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        title_element = soup.find('div', class_='title')
+        link_element = title_element.find('a') if title_element else None
+        if link_element:
+            title = title_element.text
+            link = base_url + link_element['href']
+            data.extend([(title, link)])
+        else:
+            print(f"Skipping level {level}, page {page} due to missing link.")
+            skipped_pages.append(page)
+    except Exception as e:
+        print(f"Exception while scraping level {level}, page {page}: {str(e)}")
+        skipped_pages.append(page)
 
-            soup = BeautifulSoup(response.text, "html.parser")
-            titles = [item.text for item in soup.find_all("h4", class_="card-title")]
-            links = [item.find("a")["href"] for item in soup.find_all("div", class_="encyclopedia-card")]
-
-            data = pl.DataFrame({"title": titles, "link": links})
-            data.write_csv(f"{OUTPUT_DIR}/forti_lists_{level}.csv")
-            
-            return None  # No exceptions, return None
-        except (httpx.HTTPError, httpx.RequestError, httpx.ConnectError, httpx.TimeoutException) as e:
-            return (level, page)  # Return a tuple of the level and page for skipped pages
-
-# Function to scrape data for all levels asynchronously
-async def scrape_all_levels():
+async def scrape_data(level, max_pages):
+    data = []
     skipped_pages = []
 
-    for level, max_page in enumerate(MAX_PAGES, start=1):
-        tasks = [scrape_data(level, page) for page in range(1, max_page + 1)]
-        results = await asyncio.gather(*tasks)
+    for i in range(1, max_pages + 1):
+        scrape_page(level, i, data, skipped_pages)
 
-        # Collect skipped pages
-        skipped_pages.extend([result for result in results if result is not None])
+    df = pl.DataFrame(data, schema=['title', 'link'])
+    df.write_csv(f'datasets/forti_lists_{level}.csv')
 
-    # Write skipped pages to JSON
-    with open(f"{OUTPUT_DIR}/skipped.json", "w") as json_file:
-        json.dump(skipped_pages, json_file)
+    if skipped_pages:
+        with open(f'datasets/skipped.json', 'w') as skipped_file:
+            json.dump(skipped_pages, skipped_file)
 
-# Create the output directory if it doesn't exist
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
+async def main():
+    levels = [1, 2, 3, 4, 5]
+    max_pages = [10, 10, 10, 10, 10]
+    
+    if not os.path.exists('datasets'):
+        os.makedirs('datasets')
 
-# Run the scraping process
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(scrape_all_levels())
+    tasks = []
+    for level, max_page in zip(levels, max_pages):
+        tasks.append(scrape_data(level, max_page))
 
+    await asyncio.gather(*tasks)
 
-# -----------------------
-# is not solved 
+if __name__ == '__main__':
+    asyncio.run(main())

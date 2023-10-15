@@ -15,5 +15,5 @@ RUN pip install -r requirements.txt
 COPY . .
 
 
-# run FastAPI
+# run 
 ENTRYPOINT ["python", "etl.py"]
